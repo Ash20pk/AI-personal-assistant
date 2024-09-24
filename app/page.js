@@ -1,101 +1,126 @@
-import Image from "next/image";
+"use client"
+
+import React, { useState, useEffect } from 'react';
+import { Mic, StopCircle, Save } from 'lucide-react';
+
+const AnimatedWaveform = ({ isListening }) => (
+  <div className={`flex justify-center items-center space-x-1 h-16 ${isListening ? 'animate-pulse' : ''}`}>
+    {[...Array(5)].map((_, i) => (
+      <div
+        key={i}
+        className={`w-1 bg-blue-500 rounded-full ${
+          isListening ? `animate-waveform-${i + 1}` : 'h-2'
+        }`}
+        style={{ animationDelay: `${i * 0.1}s` }}
+      ></div>
+    ))}
+  </div>
+);
+
+const Button = ({ onClick, disabled, children, color = 'blue' }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className={`bg-${color}-500 hover:bg-${color}-600 text-white font-bold py-2 px-4 rounded-full 
+                transition-all duration-300 ease-in-out transform hover:scale-105 
+                focus:outline-none focus:ring-2 focus:ring-${color}-400 focus:ring-opacity-50
+                disabled:opacity-50 disabled:cursor-not-allowed`}
+  >
+    {children}
+  </button>
+);
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [isListening, setIsListening] = useState(false);
+  const [note, setNote] = useState('');
+  const [savedNotes, setSavedNotes] = useState([]);
+  const [openAIResponse, setOpenAIResponse] = useState('');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event) => {
+          const transcript = Array.from(event.results)
+            .map((result) => result[0])
+            .map((result) => result.transcript)
+            .join('');
+          setNote(transcript);
+        };
+
+        if (isListening) {
+          recognition.start();
+        } else {
+          recognition.stop();
+        }
+
+        return () => {
+          recognition.stop();
+        };
+      }
+    }
+  }, [isListening]);
+
+  const handleSaveNote = async () => {
+    setSavedNotes([...savedNotes, note]);
+    setNote('');
+    try {
+      const response = await fetch('/api/openai', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: note }),
+      });
+      const data = await response.json();
+      setOpenAIResponse(data.response);
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white p-8">
+      <div className="max-w-3xl mx-auto">
+        <h1 className="text-4xl font-bold mb-8 text-center text-blue-400">Speech to Text with OpenAI</h1>
+        
+        <div className="bg-gray-800 rounded-lg p-6 mb-8 shadow-lg">
+          <AnimatedWaveform isListening={isListening} />
+          
+          <div className="flex justify-center space-x-4 mb-4">
+            <Button onClick={() => setIsListening(prevState => !prevState)} color={isListening ? 'red' : 'green'}>
+              {isListening ? <StopCircle className="inline mr-2" /> : <Mic className="inline mr-2" />}
+              {isListening ? 'Stop Listening' : 'Start Listening'}
+            </Button>
+            <Button onClick={handleSaveNote} disabled={!note} color="purple">
+              <Save className="inline mr-2" />
+              Save & Process
+            </Button>
+          </div>
+          
+          <div className="bg-gray-700 p-4 rounded-lg mb-4">
+            <p className="text-lg">{note || "Your speech will appear here..."}</p>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="bg-gray-800 rounded-lg p-6 shadow-lg">
+            <h2 className="text-2xl font-bold mb-4 text-purple-400">Saved Notes</h2>
+            {savedNotes.map((n, index) => (
+              <p key={index} className="mb-2 bg-gray-700 p-2 rounded">{n}</p>
+            ))}
+          </div>
+          
+          <div className="bg-gray-800 rounded-lg p-6 shadow-lg">
+            <h2 className="text-2xl font-bold mb-4 text-green-400">OpenAI Response</h2>
+            <p className="bg-gray-700 p-2 rounded">{openAIResponse || "OpenAI response will appear here..."}</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
