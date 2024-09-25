@@ -107,7 +107,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
       <div className="max-w-3xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8 text-center text-blue-400">Speech to Text with OpenAI</h1>
+        <h1 className="text-4xl font-bold mb-8 text-center text-blue-400"></h1>
         
         <div className="bg-gray-800 rounded-lg p-6 mb-8 shadow-lg">
           <AnimatedWaveform isListening={isListening} />
