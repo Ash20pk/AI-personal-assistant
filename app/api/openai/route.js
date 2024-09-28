@@ -10,8 +10,12 @@ export async function POST(request) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: prompt }],
+      model: "gpt-4o",
+      messages: [{
+        role: "system",
+        content: "You are JARVIS from Iron Man. You are a helpful assistant that can answer questions and help with tasks."
+      },
+      { role: "user", content: prompt }],
     });
     return NextResponse.json({ response: completion.choices[0].message.content });
   } catch (error) {
