@@ -59,6 +59,7 @@ export default function Home() {
         recognitionRef.current.interimResults = true;
 
         recognitionRef.current.onresult = (event) => {
+          setNoteOpacity(1);
           const transcript = Array.from(event.results)
             .map((result) => result[0])
             .map((result) => result.transcript)
@@ -90,6 +91,8 @@ export default function Home() {
       }
     };
   }, []);
+
+  console.log(note);
 
   const toggleListening = () => {
     if (isListening) {
