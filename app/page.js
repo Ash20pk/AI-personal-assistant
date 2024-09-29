@@ -176,8 +176,8 @@ export default function Home() {
             loop={true}
             autoplay={true}
             style={{ 
-              width: '50%', 
-              height: '50%',
+              width: '70%', 
+              height: '70%',
               opacity: isAssistantSpeaking ? 1 : 0.7,
               transition: 'opacity 0.5s ease-in-out',
             }}
