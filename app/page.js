@@ -48,6 +48,7 @@ export default function Home() {
   const [isMuted, setIsMuted] = useState(false);
   const recognitionRef = useRef(null);
   const speechSynthesisRef = useRef(null);
+  const [noteOpacity, setNoteOpacity] = useState(1);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -139,9 +140,13 @@ export default function Home() {
       utterance.pitch = 1;
       utterance.voice = speechSynthesisRef.current.getVoices().find(voice => voice.name === 'Google UK English Male') || speechSynthesisRef.current.getVoices()[0];
 
-      // Set isAssistantSpeaking to true when the speech starts
+      // Set isAssistantSpeaking to true and clear the note when the speech starts
       utterance.onstart = () => {
         setIsAssistantSpeaking(true);
+        setNoteOpacity(0);
+        setTimeout(() => {
+          setNote('');
+        }, 500);
       };
 
       // Set isAssistantSpeaking to true on each word boundary
@@ -201,7 +206,12 @@ export default function Home() {
         </div>
         
         <div className="w-full text-center">
-          <p className="text-xl text-blue-300">{note || "Speak to interact with JARVIS..."}</p>
+          <p 
+            className="text-xl text-blue-300 transition-opacity duration-500" 
+            style={{ opacity: noteOpacity }}
+          >
+            {note || "Speak to interact with JARVIS..."}
+          </p>
         </div>
       </div>
     </div>
