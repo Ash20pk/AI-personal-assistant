@@ -3,19 +3,41 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Volume2, VolumeX } from 'lucide-react';
 import Lottie from 'lottie-react';
 import holographicPersonAnimation from './holo_animation.json';
+import clickSound from './button-click.mp3';
 
-const CircularButton = ({ onClick, children, isActive }) => (
-  <button
-    onClick={onClick}
-    className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out
-                ${isActive 
-                  ? 'bg-blue-500 text-white' 
-                  : 'bg-transparent border-2 border-blue-500 text-blue-500'}
-                hover:bg-blue-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400`}
-  >
-    {children}
-  </button>
-);
+const CircularButton = ({ onClick, children, isActive }) => {
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    audioRef.current = new Audio(clickSound);
+  }, []);
+
+  const handleClick = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(error => console.error("Audio playback failed:", error));
+    }
+    onClick();
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out
+                  relative overflow-hidden
+                  ${isActive 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-transparent border-2 border-blue-500 text-blue-500'}
+                  hover:bg-blue-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400`}
+    >
+      <div className="relative z-10">
+        {children}
+      </div>
+      <div className={`absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 opacity-0 transition-opacity duration-300 ease-in-out ${isActive ? 'opacity-100' : 'opacity-0'}`}></div>
+      <div className="absolute inset-0 bg-grid bg-repeat bg-center opacity-20"></div>
+    </button>
+  );
+};
 
 export default function Home() {
   const [isListening, setIsListening] = useState(false);
@@ -102,19 +124,36 @@ export default function Home() {
         console.error('Error:', error);
         setOpenAIResponse('An error occurred while processing your request.');
       } finally {
-        setIsAssistantSpeaking(false);
       }
     }
   };
 
-  console.log(openAIResponse);
 
   const speakResponse = (text) => {
     if (speechSynthesisRef.current) {
-      const utterance = new SpeechSynthesisUtterance(text);
+      // Replace line breaks with spaces
+      const formattedText = text.replace(/\n/g, ' ');
+      
+      const utterance = new SpeechSynthesisUtterance(formattedText);
       utterance.rate = 1;
       utterance.pitch = 1;
       utterance.voice = speechSynthesisRef.current.getVoices().find(voice => voice.name === 'Google UK English Male') || speechSynthesisRef.current.getVoices()[0];
+
+      // Set isAssistantSpeaking to true when the speech starts
+      utterance.onstart = () => {
+        setIsAssistantSpeaking(true);
+      };
+
+      // Set isAssistantSpeaking to true on each word boundary
+      utterance.onboundary = () => {
+        setIsAssistantSpeaking(true);
+      };
+
+      // Set isAssistantSpeaking to false when the speech ends
+      utterance.onend = () => {
+        setIsAssistantSpeaking(false);
+      };
+
       speechSynthesisRef.current.speak(utterance);
     }
   };
@@ -129,25 +168,24 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-blue-400 p-2 flex flex-col items-center justify-center">
+    <div className="min-h-screen bg-black text-blue-400 flex flex-col items-center justify-center">
       <div className="w-full max-w-4xl flex flex-col items-center">        
-        <div className="relative w-full aspect-square mb-8 flex justify-center items-center">
+        <div className="relative w-[85%] flex justify-center items-center mb-2">
           <Lottie 
             animationData={holographicPersonAnimation}
             loop={true}
             autoplay={true}
             style={{ 
-              width: '70%', 
-              height: '70%',
+              width: '50%', 
+              height: '50%',
               opacity: isAssistantSpeaking ? 1 : 0.7,
               transition: 'opacity 0.5s ease-in-out',
-              filter: 'brightness(1.5)', 
             }}
-            className={`lottie-animation ${isListening ? 'glow' : ''}`}
+            className={`lottie-animation ${isListening ? 'brightness-100' : isAssistantSpeaking ? 'brightness-150' : 'brightness-50' }`}
           />
         </div>
 
-        <div className="flex justify-center space-x-4 mb-8">
+        <div className="flex justify-center space-x-3 mb-6">
           {hasMicrophoneAccess ? (
             <>
               <CircularButton onClick={toggleListening} isActive={isListening}>
@@ -163,8 +201,7 @@ export default function Home() {
         </div>
         
         <div className="w-full text-center">
-          <p className="text-lg mb-4 text-blue-300">{note || "Speak to interact with JARVIS..."}</p>
-          <p className="text-xl text-blue-400">{openAIResponse || "JARVIS is ready to assist you."}</p>
+          <p className="text-xl text-blue-300">{note || "Speak to interact with JARVIS..."}</p>
         </div>
       </div>
     </div>
