@@ -9,10 +9,20 @@ export default function Navbar() {
   const pathname = usePathname();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  useEffect(() => {
-    // Check if token exists in cookies
+  // Function to check auth status
+  const checkAuthStatus = () => {
     const hasToken = document.cookie.includes('token=');
     setIsLoggedIn(hasToken);
+  };
+
+  useEffect(() => {
+    checkAuthStatus();
+    // Add event listener for storage changes
+    window.addEventListener('storage', checkAuthStatus);
+    
+    return () => {
+      window.removeEventListener('storage', checkAuthStatus);
+    };
   }, [pathname]); // Re-check when pathname changes
 
   const handleLogout = async () => {
@@ -25,6 +35,8 @@ export default function Navbar() {
       if (response.ok) {
         document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
         setIsLoggedIn(false);
+        // Trigger storage event to update other tabs
+        window.localStorage.setItem('logout', Date.now().toString());
         router.push('/login');
         router.refresh();
       }
@@ -60,37 +72,37 @@ export default function Navbar() {
               <Home size={20} />
               <span>Home</span>
             </Link>
-            {isLoggedIn && (
-              <Link
-                href="/dashboard"
-                className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 
-                  ${isActive('/dashboard') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+            <Link
+              href="/dashboard"
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 
+                ${isActive('/dashboard') ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+            >
+              <LayoutDashboard size={20} />
+              <span>Dashboard</span>
+            </Link>
+          </div>
+          
+          <div>
+            {isLoggedIn ? (
+              <button
+                onClick={handleLogout}
+                className="flex items-center space-x-2 px-4 py-2 rounded-lg text-gray-400 
+                  hover:text-white hover:bg-white/5 transition-all duration-300"
               >
-                <LayoutDashboard size={20} />
-                <span>Dashboard</span>
+                <LogOut size={20} />
+                <span>Logout</span>
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className="flex items-center space-x-2 px-4 py-2 rounded-lg text-gray-400 
+                  hover:text-white hover:bg-white/5 transition-all duration-300"
+              >
+                <LogIn size={20} />
+                <span>Login</span>
               </Link>
             )}
           </div>
-          
-          {isLoggedIn ? (
-            <button
-              onClick={handleLogout}
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-gray-400 
-                hover:text-white hover:bg-white/5 transition-all duration-300"
-            >
-              <LogOut size={20} />
-              <span>Logout</span>
-            </button>
-          ) : (
-            <Link
-              href="/login"
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-gray-400 
-                hover:text-white hover:bg-white/5 transition-all duration-300"
-            >
-              <LogIn size={20} />
-              <span>Login</span>
-            </Link>
-          )}
         </div>
       </div>
     </nav>

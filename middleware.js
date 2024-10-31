@@ -3,15 +3,15 @@ import * as jose from 'jose';
 
 export async function middleware(request) {
   const path = request.nextUrl.pathname;
-  const isPublicPath = path === '/login' || path === '/' || path === '/register';
+  const isAuthPath = path === '/login' || path === '/register';
   const token = request.cookies.get('token')?.value || '';
 
   console.log('Middleware path:', path);
-  console.log('Is public path:', isPublicPath);
+  console.log('Is auth path:', isAuthPath);
   console.log('Token exists:', !!token);
 
   try {
-    if (!isPublicPath && !token) {
+    if (!isAuthPath && path !== '/' && !token) {
       console.log('Redirecting to login - no token');
       return NextResponse.redirect(new URL('/login', request.url));
     }
@@ -23,8 +23,8 @@ export async function middleware(request) {
         const verified = await jose.jwtVerify(token, secret);
         console.log('Token verified:', verified);
 
-        if (isPublicPath) {
-          console.log('Redirecting to dashboard - valid token');
+        if (isAuthPath) {
+          console.log('Redirecting to dashboard - auth page access while logged in');
           return NextResponse.redirect(new URL('/dashboard', request.url));
         }
       } catch (error) {
