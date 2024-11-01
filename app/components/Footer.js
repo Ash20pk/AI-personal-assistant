@@ -30,7 +30,7 @@ const Footer = () => {
               Free open source AI template
             </div>
             <div className="text-white mb-4 text-2xl font-bold font-sans">
-              Build your own Lang Learn GPT
+              Build your own Jarvis.ai
             </div>
             <div className="flex items-center gap-4">
               <Link

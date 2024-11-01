@@ -6,13 +6,8 @@ export async function middleware(request) {
   const isAuthPath = path === '/login' || path === '/register';
   const token = request.cookies.get('token')?.value || '';
 
-  console.log('Middleware path:', path);
-  console.log('Is auth path:', isAuthPath);
-  console.log('Token exists:', !!token);
-
   try {
     if (!isAuthPath && path !== '/' && !token) {
-      console.log('Redirecting to login - no token');
       return NextResponse.redirect(new URL('/login', request.url));
     }
 
@@ -21,10 +16,8 @@ export async function middleware(request) {
       try {
         const secret = new TextEncoder().encode(process.env.JWT_SECRET);
         const verified = await jose.jwtVerify(token, secret);
-        console.log('Token verified:', verified);
 
         if (isAuthPath) {
-          console.log('Redirecting to dashboard - auth page access while logged in');
           return NextResponse.redirect(new URL('/dashboard', request.url));
         }
       } catch (error) {

@@ -73,7 +73,6 @@ export default function Dashboard() {
 
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then(() => {
-            console.log("Microphone access granted");
             setHasMicrophoneAccess(true);
           })
           .catch((err) => console.error("Error accessing microphone:", err));

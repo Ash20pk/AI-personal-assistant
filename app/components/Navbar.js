@@ -10,20 +10,27 @@ export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   // Function to check auth status
-  const checkAuthStatus = () => {
-    const hasToken = document.cookie.includes('token=');
-    setIsLoggedIn(hasToken);
+  const checkAuthStatus = async () => {
+    try {
+      const response = await fetch('/api/auth/check', {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      setIsLoggedIn(data.success);
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      setIsLoggedIn(false);
+    }
   };
 
   useEffect(() => {
     checkAuthStatus();
-    // Add event listener for storage changes
     window.addEventListener('storage', checkAuthStatus);
     
     return () => {
       window.removeEventListener('storage', checkAuthStatus);
     };
-  }, [pathname]); // Re-check when pathname changes
+  }, [pathname]);
 
   const handleLogout = async () => {
     try {
