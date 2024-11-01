@@ -1,15 +1,25 @@
 "use client"
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Volume2, VolumeX } from 'lucide-react';
-import Lottie from 'lottie-react';
-import holographicPersonAnimation from '../holo_animation.json';
-import clickSound from '../button-click.mp3';
+import { default as dynamicImport } from 'next/dynamic';
+
+// Dynamically import Lottie with no SSR
+const Lottie = dynamicImport(() => import('lottie-react'), {
+  ssr: false,
+});
 
 const CircularButton = ({ onClick, children, isActive }) => {
   const audioRef = useRef(null);
 
   useEffect(() => {
-    audioRef.current = new Audio(clickSound);
+    const loadAssets = async () => {
+      if (typeof window !== 'undefined') {
+        const clickSound = (await import('../button-click.mp3')).default;
+        audioRef.current = new Audio(clickSound);
+      }
+    };
+
+    loadAssets();
   }, []);
 
   const handleClick = () => {
@@ -39,16 +49,29 @@ const CircularButton = ({ onClick, children, isActive }) => {
   );
 };
 
-export default function Dashboard() {
+const Dashboard = () => {
+  const [isClient, setIsClient] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [note, setNote] = useState('');
   const [openAIResponse, setOpenAIResponse] = useState('');
   const [hasMicrophoneAccess, setHasMicrophoneAccess] = useState(false);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [animation, setAnimation] = useState(null);
   const recognitionRef = useRef(null);
   const speechSynthesisRef = useRef(null);
   const [noteOpacity, setNoteOpacity] = useState(1);
+
+  // Load assets only on client side
+  useEffect(() => {
+    const loadAssets = async () => {
+      const holographicPersonAnimation = (await import('../holo_animation.json')).default;
+      setAnimation(holographicPersonAnimation);
+      setIsClient(true);
+    };
+
+    loadAssets();
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -70,15 +93,19 @@ export default function Dashboard() {
         recognitionRef.current.onend = () => {
           setIsListening(false);
         };
-
-        navigator.mediaDevices.getUserMedia({ audio: true })
-          .then(() => {
-            setHasMicrophoneAccess(true);
-          })
-          .catch((err) => console.error("Error accessing microphone:", err));
       }
 
       speechSynthesisRef.current = window.speechSynthesis;
+
+      // Request microphone access
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(() => {
+          setHasMicrophoneAccess(true);
+        })
+        .catch((err) => {
+          console.error("Error accessing microphone:", err);
+          setHasMicrophoneAccess(false);
+        });
     }
 
     return () => {
@@ -166,48 +193,66 @@ export default function Dashboard() {
     }
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center">
-      <div className="w-full max-w-4xl flex flex-col items-center">        
-        <div className="relative w-[85%] flex justify-center items-center mb-2">
-          <Lottie 
-            animationData={holographicPersonAnimation}
-            loop={true}
-            autoplay={true}
-            style={{ 
-              width: '60%', 
-              height: '60%',
-              opacity: isAssistantSpeaking ? 1 : 0.7,
-              transition: 'opacity 0.5s ease-in-out',
-            }}
-            className={`lottie-animation ${isListening ? 'brightness-100' : isAssistantSpeaking ? 'brightness-150' : 'brightness-50' }`}
-          />
+  if (!isClient || !animation) {
+    return (
+      <div className="min-h-screen bg-black pt-16 px-4">
+        <div className="max-w-7xl mx-auto">
+          <h1 className="text-2xl font-bold text-white">Loading...</h1>
         </div>
+      </div>
+    );
+  }
 
-        <div className="flex justify-center space-x-3 mb-6">
-          {hasMicrophoneAccess ? (
-            <>
-              <CircularButton onClick={toggleListening} isActive={isListening}>
-                <Mic size={24} />
-              </CircularButton>
-              <CircularButton onClick={toggleMute} isActive={!isMuted}>
-                {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-              </CircularButton>
-            </>
-          ) : (
-            <p className="text-lg text-red-500">Please grant microphone access to use this feature.</p>
-          )}
-        </div>
-        
-        <div className="w-full text-center">
-          <p 
-            className="text-xl text-blue-300 transition-opacity duration-500" 
-            style={{ opacity: noteOpacity }}
-          >
-            {note || "Speak to interact with JARVIS..."}
-          </p>
+  return (
+    <div className="min-h-screen bg-black px-4">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex flex-col items-center justify-center">
+          <div className="w-full max-w-4xl flex flex-col items-center">        
+            <div className="relative w-[85%] flex justify-center items-center mb-2">
+              {animation && (
+                <Lottie 
+                  animationData={animation}
+                  loop={true}
+                  autoplay={true}
+                  style={{ 
+                    width: '60%', 
+                    height: '60%',
+                    opacity: isAssistantSpeaking ? 1 : 0.7,
+                    transition: 'opacity 0.5s ease-in-out',
+                  }}
+                  className={`lottie-animation ${isListening ? 'brightness-100' : isAssistantSpeaking ? 'brightness-150' : 'brightness-50' }`}
+                />
+              )}
+            </div>
+
+            <div className="flex justify-center space-x-3 mb-6">
+              {hasMicrophoneAccess ? (
+                <>
+                  <CircularButton onClick={toggleListening} isActive={isListening}>
+                    <Mic size={24} />
+                  </CircularButton>
+                  <CircularButton onClick={toggleMute} isActive={!isMuted}>
+                    {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+                  </CircularButton>
+                </>
+              ) : (
+                <p className="text-lg text-red-500">Please grant microphone access to use this feature.</p>
+              )}
+            </div>
+            
+            <div className="w-full text-center">
+              <p 
+                className="text-xl text-blue-300 transition-opacity duration-500" 
+                style={{ opacity: noteOpacity }}
+              >
+                {note || "Speak to interact with JARVIS..."}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default Dashboard;
