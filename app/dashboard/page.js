@@ -1,10 +1,10 @@
-"use client"
+"use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Volume2, VolumeX } from 'lucide-react';
-import { default as dynamicImport } from 'next/dynamic';
+import dynamic from 'next/dynamic';
 
 // Dynamically import Lottie with no SSR
-const Lottie = dynamicImport(() => import('lottie-react'), {
+const Lottie = dynamic(() => import('lottie-react'), {
   ssr: false,
 });
 
@@ -61,6 +61,9 @@ const Dashboard = () => {
   const recognitionRef = useRef(null);
   const speechSynthesisRef = useRef(null);
   const [noteOpacity, setNoteOpacity] = useState(1);
+  const openAiWsRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
 
   // Load assets only on client side
   useEffect(() => {
@@ -99,13 +102,61 @@ const Dashboard = () => {
 
       // Request microphone access
       navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(() => {
+        .then((stream) => {
           setHasMicrophoneAccess(true);
+          mediaStreamRef.current = stream;
+          mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+          mediaRecorderRef.current.ondataavailable = (event) => {
+            if (event.data.size > 0 && openAiWsRef.current.readyState === WebSocket.OPEN) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64Audio = reader.result.split(',')[1];
+                const audioAppend = {
+                  type: 'input_audio_buffer.append',
+                  audio: base64Audio
+                };
+                openAiWsRef.current.send(JSON.stringify(audioAppend));
+              };
+              reader.readAsDataURL(event.data);
+            }
+          };
         })
         .catch((err) => {
           console.error("Error accessing microphone:", err);
           setHasMicrophoneAccess(false);
         });
+
+      // Initialize OpenAI WebSocket connection
+      const wsUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01&Authorization=Bearer ${process.env.OPENAI_API_KEY}&OpenAI-Beta=realtime=v1`;
+      openAiWsRef.current = new WebSocket(wsUrl);
+
+      openAiWsRef.current.onopen = () => {
+        console.log('Connected to the OpenAI Realtime API');
+        sendSessionUpdate();
+      };
+
+      openAiWsRef.current.onmessage = (event) => {
+        const response = JSON.parse(event.data);
+        if (response.type === 'response.audio.delta' && response.delta) {
+          const audioDelta = Buffer.from(response.delta, 'base64');
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const bufferSource = audioContext.createBufferSource();
+          audioContext.decodeAudioData(audioDelta.buffer, (buffer) => {
+            bufferSource.buffer = buffer;
+            bufferSource.connect(audioContext.destination);
+            bufferSource.start();
+          });
+        }
+      };
+
+      openAiWsRef.current.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      openAiWsRef.current.onclose = () => {
+        console.log('WebSocket closed');
+      };
     }
 
     return () => {
@@ -115,16 +166,41 @@ const Dashboard = () => {
       if (speechSynthesisRef.current) {
         speechSynthesisRef.current.cancel();
       }
+      if (openAiWsRef.current) {
+        openAiWsRef.current.close();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
   }, []);
+
+  const sendSessionUpdate = () => {
+    const sessionUpdate = {
+      type: 'session.update',
+      session: {
+        turn_detection: { type: 'server_vad' },
+        input_audio_format: 'g711_ulaw',
+        output_audio_format: 'g711_ulaw',
+        voice: 'Alloy',
+        instructions: 'You are a helpful assistant.',
+        modalities: ["text", "audio"],
+        temperature: 0.8,
+      }
+    };
+    console.log('Sending session update:', JSON.stringify(sessionUpdate));
+    openAiWsRef.current.send(JSON.stringify(sessionUpdate));
+  };
 
   const toggleListening = () => {
     if (isListening) {
       recognitionRef.current.stop();
+      mediaRecorderRef.current.stop();
       handleSpeechEnd();
     } else {
       setNote('');
       recognitionRef.current.start();
+      mediaRecorderRef.current.start();
     }
     setIsListening(!isListening);
   };
@@ -132,6 +208,7 @@ const Dashboard = () => {
   const handleSpeechEnd = async () => {
     if (isListening) {
       recognitionRef.current.stop();
+      mediaRecorderRef.current.stop();
     }
     if (note) {
       try {
