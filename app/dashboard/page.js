@@ -2,6 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Volume2, VolumeX } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { RealtimeClient } from '@openai/realtime-api-beta';
+import { Howl } from 'howler';
+import Recorder from 'recorder-js';  
 
 // Dynamically import Lottie with no SSR
 const Lottie = dynamic(() => import('lottie-react'), {
@@ -58,12 +61,19 @@ const Dashboard = () => {
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [animation, setAnimation] = useState(null);
-  const recognitionRef = useRef(null);
-  const speechSynthesisRef = useRef(null);
   const [noteOpacity, setNoteOpacity] = useState(1);
-  const openAiWsRef = useRef(null);
+  const [currentSound, setCurrentSound] = useState(null);
+  
+  const clientRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const speechSynthesisRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recorderInstanceRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const sourceRef = useRef(null);
+  const workletNodeRef = useRef(null);
 
   // Load assets only on client side
   useEffect(() => {
@@ -71,204 +81,356 @@ const Dashboard = () => {
       const holographicPersonAnimation = (await import('../holo_animation.json')).default;
       setAnimation(holographicPersonAnimation);
       setIsClient(true);
+
+      // Initialize Web Speech API recognition
+      if (typeof window !== 'undefined') {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          recognitionRef.current = new SpeechRecognition();
+          recognitionRef.current.continuous = true;
+          recognitionRef.current.interimResults = true;
+
+          recognitionRef.current.onresult = (event) => {
+            setNoteOpacity(1);
+            const transcript = Array.from(event.results)
+              .map((result) => result[0])
+              .map((result) => result.transcript)
+              .join('');
+            setNote(transcript);
+          };
+
+          recognitionRef.current.onend = () => {
+            // Only stop listening if we're not in the middle of speech
+            if (!isListening) {
+              mediaRecorderRef.current?.stop();
+            }
+          };
+        }
+      }
+
+      setHasMicrophoneAccess(true);
+
+      // Initialize Web Audio API with AudioWorklet
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      
+      try {
+        await audioContextRef.current.audioWorklet.addModule('/audioProcessor.js');
+      } catch (error) {
+        console.error('Error loading audio worklet:', error);
+      }
+
+      // Initialize RealtimeClient
+      initializeRealtimeClient();
+
+      return () => {
+        if (sourceRef.current) {
+          sourceRef.current.disconnect();
+        }
+        if (workletNodeRef.current) {
+          workletNodeRef.current.disconnect();
+        }
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+        }
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+        if (clientRef.current) {
+          clientRef.current.disconnect();
+        }
+        if (speechSynthesisRef.current) {
+          speechSynthesisRef.current.cancel();
+        }
+        audioChunksRef.current = [];
+      };
     };
 
     loadAssets();
-  }, []);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition && !recognitionRef.current) {
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = true;
-        recognitionRef.current.interimResults = true;
+    // Initialize speech synthesis
+    speechSynthesisRef.current = window.speechSynthesis;
 
-        recognitionRef.current.onresult = (event) => {
-          setNoteOpacity(1);
-          const transcript = Array.from(event.results)
-            .map((result) => result[0])
-            .map((result) => result.transcript)
-            .join('');
-          setNote(transcript);
-        };
+    // Initialize Web Audio API
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
 
-        recognitionRef.current.onend = () => {
-          setIsListening(false);
-        };
-      }
-
-      speechSynthesisRef.current = window.speechSynthesis;
-
-      // Request microphone access
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then((stream) => {
-          setHasMicrophoneAccess(true);
-          mediaStreamRef.current = stream;
-          mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-
-          mediaRecorderRef.current.ondataavailable = (event) => {
-            if (event.data.size > 0 && openAiWsRef.current.readyState === WebSocket.OPEN) {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64Audio = reader.result.split(',')[1];
-                const audioAppend = {
-                  type: 'input_audio_buffer.append',
-                  audio: base64Audio
-                };
-                openAiWsRef.current.send(JSON.stringify(audioAppend));
-              };
-              reader.readAsDataURL(event.data);
-            }
-          };
-        })
-        .catch((err) => {
-          console.error("Error accessing microphone:", err);
-          setHasMicrophoneAccess(false);
-        });
-
-      // Initialize OpenAI WebSocket connection
-      const wsUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01&Authorization=Bearer ${process.env.OPENAI_API_KEY}&OpenAI-Beta=realtime=v1`;
-      openAiWsRef.current = new WebSocket(wsUrl);
-
-      openAiWsRef.current.onopen = () => {
-        console.log('Connected to the OpenAI Realtime API');
-        sendSessionUpdate();
-      };
-
-      openAiWsRef.current.onmessage = (event) => {
-        const response = JSON.parse(event.data);
-        if (response.type === 'response.audio.delta' && response.delta) {
-          const audioDelta = Buffer.from(response.delta, 'base64');
-          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          const bufferSource = audioContext.createBufferSource();
-          audioContext.decodeAudioData(audioDelta.buffer, (buffer) => {
-            bufferSource.buffer = buffer;
-            bufferSource.connect(audioContext.destination);
-            bufferSource.start();
-          });
-        }
-      };
-
-      openAiWsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-
-      openAiWsRef.current.onclose = () => {
-        console.log('WebSocket closed');
-      };
-    }
+    // Initialize RealtimeClient
+    initializeRealtimeClient();
 
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+      if (sourceRef.current) {
+        sourceRef.current.disconnect();
       }
-      if (speechSynthesisRef.current) {
-        speechSynthesisRef.current.cancel();
+      if (workletNodeRef.current) {
+        workletNodeRef.current.disconnect();
       }
-      if (openAiWsRef.current) {
-        openAiWsRef.current.close();
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
       }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach(track => track.stop());
       }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      if (clientRef.current) {
+        clientRef.current.disconnect();
+      }
+      if (speechSynthesisRef.current) {
+        speechSynthesisRef.current.cancel();
+      }
+      audioChunksRef.current = [];
     };
   }, []);
 
-  const sendSessionUpdate = () => {
-    const sessionUpdate = {
-      type: 'session.update',
-      session: {
-        turn_detection: { type: 'server_vad' },
-        input_audio_format: 'g711_ulaw',
-        output_audio_format: 'g711_ulaw',
-        voice: 'Alloy',
-        instructions: 'You are a helpful assistant.',
-        modalities: ["text", "audio"],
-        temperature: 0.8,
-      }
-    };
-    console.log('Sending session update:', JSON.stringify(sessionUpdate));
-    openAiWsRef.current.send(JSON.stringify(sessionUpdate));
+  const initializeRealtimeClient = async () => {
+    clientRef.current = new RealtimeClient({ apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY, dangerouslyAllowAPIKeyInBrowser: true });
+    // Can set parameters ahead of connecting, either separately or all at once
+    clientRef.current.updateSession({ instructions: 'You are a great, upbeat friend.' });
+    clientRef.current.updateSession({ voice: 'alloy' });
+    clientRef.current.updateSession({
+      turn_detection: { type: 'disabled' }, // or 'server_vad'
+      input_audio_transcription: { model: 'whisper-1' },
+    });
+
+    // Connect to Realtime API
+    await clientRef.current.connect();
   };
 
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current.stop();
-      mediaRecorderRef.current.stop();
-      handleSpeechEnd();
-    } else {
-      setNote('');
-      recognitionRef.current.start();
-      mediaRecorderRef.current.start();
+  const fetchResponse = async () => {
+    // Set up event handling
+    clientRef.current.on('conversation.item.completed', (item) => {
+      if (item?.item?.formatted) {
+        setOpenAIResponse(item.item.formatted.transcript || '');
+        
+        // Handle audio chunk
+        if (item.item.formatted.audio && !isMuted) {
+          // Each chunk is a new Int16Array
+          const audioChunk = item.item.formatted.audio;
+          if (audioChunk.length > 0) {
+            playReceivedAudio(audioChunk);
+          }
+        }
+      }
+    });
+  };
+
+  const toggleListening = async () => {
+    try {
+      if (isListening) {
+        // Stop listening
+        if (sourceRef.current) {
+          sourceRef.current.disconnect();
+        }
+        if (workletNodeRef.current) {
+          workletNodeRef.current.disconnect();
+        }
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+        }
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.stop();
+          } catch (error) {
+            console.error('Error stopping recognition:', error);
+          }
+        }
+        handleSpeechEnd();
+        setIsListening(false);
+      } else {
+        setNote('');
+        try {
+          // Make sure recognition is stopped before starting
+          if (recognitionRef.current) {
+            try {
+              recognitionRef.current.stop();
+            } catch (error) {
+              // Ignore error if recognition wasn't actually running
+            }
+          }
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              sampleRate: 24000,
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+            },
+          });
+          mediaStreamRef.current = stream;
+
+          // Create new audio context if the previous one was closed
+          if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+            audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+            await audioContextRef.current.audioWorklet.addModule('/audioProcessor.js');
+          }
+
+          // Resume audio context if it was suspended
+          if (audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume();
+          }
+
+          const source = audioContextRef.current.createMediaStreamSource(stream);
+          sourceRef.current = source;
+
+          // Create AudioWorkletNode with explicit output channel count
+          const workletNode = new AudioWorkletNode(audioContextRef.current, 'audio-processor', {
+            numberOfInputs: 1,
+            numberOfOutputs: 0,  // Set to 0 to prevent any audio output
+            channelCount: 1,
+          });
+          workletNodeRef.current = workletNode;
+
+          // Handle messages from the AudioWorklet
+          workletNode.port.onmessage = (event) => {
+            if (event.data.audioData && clientRef.current) {
+              clientRef.current.appendInputAudio(event.data.audioData);
+            }
+          };
+
+          // Connect source to worklet only
+          source.connect(workletNode);
+
+          // Start speech recognition for transcription after a small delay
+          setTimeout(() => {
+            if (recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (error) {
+                console.error('Error starting recognition:', error);
+              }
+            }
+          }, 100);
+
+          setIsListening(true);
+          setHasMicrophoneAccess(true);
+
+        } catch (err) {
+          console.error("Error starting recording:", err);
+          setHasMicrophoneAccess(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling listening state:', error);
     }
-    setIsListening(!isListening);
   };
 
   const handleSpeechEnd = async () => {
-    if (isListening) {
+    if (recognitionRef.current) {
       recognitionRef.current.stop();
-      mediaRecorderRef.current.stop();
     }
-    if (note) {
+    setIsListening(false);
+
       try {
         setIsAssistantSpeaking(true);
-        const response = await fetch('/api/openai', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ prompt: note }),
-        });
-        const data = await response.json();
-        setOpenAIResponse(data.response);
-        if (!isMuted) {
-          speakResponse(data.response);
-        }
+        clientRef.current.createResponse();
+        
+        setNote('');
+        fetchResponse();
       } catch (error) {
-        console.error('Error:', error);
+        console.error('Error processing speech end:', error);
         setOpenAIResponse('An error occurred while processing your request.');
+        setIsAssistantSpeaking(false);
       }
+  };
+
+  const playReceivedAudio = (audioChunk) => {
+    try {
+      // Create WAV buffer from this chunk
+      const wavBuffer = createWavBuffer(audioChunk);
+      const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+
+      // Create and play sound using Howler
+      const sound = new Howl({
+        src: [url],
+        format: ['wav'],
+        autoplay: true,
+        html5: true,
+        volume: 1.0,
+        onend: () => {
+          URL.revokeObjectURL(url);
+          setCurrentSound(null);
+        },
+        onloaderror: (id, error) => {
+          console.error('Error loading audio chunk:', error);
+          URL.revokeObjectURL(url);
+        },
+        onplayerror: (id, error) => {
+          console.error('Error playing audio chunk:', error);
+          URL.revokeObjectURL(url);
+        }
+      });
+
+      // Store the current sound
+      setCurrentSound(sound);
+
+    } catch (error) {
+      console.error('Error processing audio chunk:', error);
     }
   };
 
-  const speakResponse = (text) => {
-    if (speechSynthesisRef.current) {
-      const formattedText = text.replace(/\n/g, ' ');
-      
-      const utterance = new SpeechSynthesisUtterance(formattedText);
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.voice = speechSynthesisRef.current.getVoices().find(voice => voice.name === 'Google UK English Male') || speechSynthesisRef.current.getVoices()[0];
+  const createWavBuffer = (audioData) => {
+    const numChannels = 1;
+    const sampleRate = 24000;  // Match API sample rate
+    const bitsPerSample = 16;  // PCM 16-bit
+    const bytesPerSample = bitsPerSample / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = audioData.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
 
-      utterance.onstart = () => {
-        setIsAssistantSpeaking(true);
-        setNoteOpacity(0);
-        setTimeout(() => {
-          setNote('');
-        }, 500);
-      };
+    // Write WAV header
+    const writeString = (view, offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
 
-      utterance.onboundary = () => {
-        setIsAssistantSpeaking(true);
-      };
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);       // PCM format (1)
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
 
-      utterance.onend = () => {
-        setIsAssistantSpeaking(false);
-      };
-
-      speechSynthesisRef.current.speak(utterance);
+    // Write audio data as 16-bit PCM
+    const offset = 44;
+    for (let i = 0; i < audioData.length; i++) {
+      view.setInt16(offset + i * bytesPerSample, audioData[i], true);
     }
+
+    return buffer;
   };
 
   const toggleMute = () => {
     setIsMuted(!isMuted);
-    if (speechSynthesisRef.current) {
-      if (!isMuted) {
-        speechSynthesisRef.current.cancel();
-      }
+    if (currentSound && !isMuted) {
+      currentSound.stop();
     }
   };
+
+  // Clean up sounds on unmount
+  useEffect(() => {
+    return () => {
+      if (currentSound) {
+        currentSound.stop();
+      }
+    };
+  }, [currentSound]);
 
   if (!isClient || !animation) {
     return (

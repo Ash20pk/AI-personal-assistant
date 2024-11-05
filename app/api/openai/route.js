@@ -1,25 +1,59 @@
-import { NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { WebSocket } from 'ws';
+import { RealtimeClient } from '@openai/realtime-api-beta';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+export const GET = (req) => {
+  const wss = new WebSocket.Server({ noServer: true });
 
-export async function POST(request) {
-  const { prompt } = await request.json();
-
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{
-        role: "system",
-        content: "You are JARVIS from Iron Man. You are a helpful assistant that can answer questions and help with tasks. Also your response will be converted to audio so don't include any special characters or symbols just plain text. Also you will give the answer directly for any question rather than explaining the steps to find the answer."
-      },
-      { role: "user", content: prompt }],
+  wss.on('connection', (ws) => {
+    const realtimeClient = new RealtimeClient({
+      apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
     });
-    return NextResponse.json({ response: completion.choices[0].message.content });
-  } catch (error) {
-    console.error('Error:', error);
-    return NextResponse.json({ error: 'An error occurred while processing your request.' }, { status: 500 });
-  }
-}
+
+    console.log('Realtime client created',realtimeClient );
+
+    realtimeClient.on('conversation.updated', (event) => {
+      ws.send(JSON.stringify(event));
+    });
+
+    realtimeClient.on('conversation.item.appended', (event) => {
+      ws.send(JSON.stringify(event));
+    });
+
+    realtimeClient.on('conversation.item.completed', (event) => {
+      ws.send(JSON.stringify(event));
+    });
+
+    realtimeClient.on('conversation.interrupted', () => {
+      ws.send(JSON.stringify({ type: 'conversation.interrupted' }));
+    });
+
+    realtimeClient.connect().then(() => {
+      ws.on('message', (message) => {
+        const data = JSON.parse(message);
+        if (data.type === 'sendUserMessageContent') {
+          realtimeClient.sendUserMessageContent(data.content);
+        } else if (data.type === 'appendInputAudio') {
+          realtimeClient.appendInputAudio(data.audio);
+        } else if (data.type === 'createResponse') {
+          realtimeClient.createResponse();
+        } else if (data.type === 'cancelResponse') {
+          realtimeClient.cancelResponse(data.id, data.sampleCount);
+        }
+      });
+
+      ws.on('close', () => {
+        realtimeClient.disconnect();
+      });
+
+      ws.on('error', (error) => {
+        console.error('WebSocket error internal:', error);
+      });
+    });
+  });
+
+  wss.handleUpgrade(req.socket, req.headers, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+
+  return new Response(null, { status: 101 });
+};
