@@ -1,43 +1,25 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     webpack: (config, { isServer }) => {
+      // Audio file handling
       config.module.rules.push({
-        test: /\.(ogg|mp3|wav|mpe?g)$/i,
-        exclude: config.exclude,
-        use: [
-          {
-            loader: 'url-loader',
-            options: {
-              limit: 8192,
-              fallback: 'file-loader',
-              publicPath: '/_next/static/sounds/',
-              outputPath: `${isServer ? '../' : ''}static/sounds/`,
-              name: '[name]-[hash].[ext]',
-            },
-          },
-        ],
+        test: /\.(mp3)$/i,
+        type: 'asset/resource',
       });
   
+      // Add fallbacks for client-side only
       if (!isServer) {
         config.resolve.fallback = {
-          ...config.resolve.fallback,
-          "child_process": false,
-          "fs": false,
+          fs: false,
+          net: false,
+          tls: false,
+          child_process: false,
         };
       }
   
       return config;
     },
-    images: {
-      domains: ['metaschool.so'],
-      remotePatterns: [
-        {
-          protocol: 'https',
-          hostname: 'metaschool.so',
-          pathname: '/**',
-        },
-      ],
-    },
+    // Essential headers for AudioWorklet and SharedArrayBuffer
     async headers() {
       return [
         {
@@ -54,7 +36,7 @@ const nextConfig = {
           ]
         }
       ];
-    },
+    }
   };
 
 export default nextConfig;

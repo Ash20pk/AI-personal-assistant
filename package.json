@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@openai/realtime-api-beta": "github:openai/openai-realtime-api-beta",
-    "@ricky0123/vad-react": "^0.0.25",
     "bcryptjs": "^2.4.3",
     "file-loader": "^6.2.0",
     "howler": "^2.2.4",
@@ -19,13 +18,11 @@
     "lucide-react": "^0.445.0",
     "mongodb": "^6.10.0",
     "next": "14.2.13",
-    "node-record-lpcm16": "^1.0.1",
     "openai": "^4.63.0",
     "react": "^18",
     "react-dom": "^18",
     "recorder-js": "^1.0.7",
-    "url-loader": "^4.1.1",
-    "ws": "^8.18.0"
+    "url-loader": "^4.1.1"
   },
   "devDependencies": {
     "eslint": "^8",

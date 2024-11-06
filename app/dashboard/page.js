@@ -4,7 +4,6 @@ import { Mic, Volume2, VolumeX } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { RealtimeClient } from '@openai/realtime-api-beta';
 import { Howl } from 'howler';
-import Recorder from 'recorder-js';  
 
 // Dynamically import Lottie with no SSR
 const Lottie = dynamic(() => import('lottie-react'), {
