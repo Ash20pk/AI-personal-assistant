@@ -118,9 +118,6 @@ const Dashboard = () => {
         console.error('Error loading audio worklet:', error);
       }
 
-      // Initialize RealtimeClient
-      initializeRealtimeClient();
-
       return () => {
         if (sourceRef.current) {
           sourceRef.current.disconnect();
@@ -154,9 +151,6 @@ const Dashboard = () => {
 
     // Initialize Web Audio API
     audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Initialize RealtimeClient
-    initializeRealtimeClient();
 
     return () => {
       if (sourceRef.current) {
@@ -218,6 +212,10 @@ const Dashboard = () => {
 
   const toggleListening = async () => {
     try {
+        // Initialize RealtimeClient only if not already connected
+        if (!clientRef.current?.isConnected) {
+          initializeRealtimeClient();
+        }
       if (isListening) {
         // Stop listening
         if (sourceRef.current) {
